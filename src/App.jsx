@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Home, CalendarDays, Wallet, ShieldCheck, Plus, Waves, Users, Contact,
+  Home, CalendarDays, Wallet, ShieldCheck, Plus, Waves, Users, IdCard,
   Dumbbell, PartyPopper, TreePine, ScanLine, UserCheck, UserX, Camera,
   ArrowRight, Building2, LogOut, Loader2, AlertCircle, CheckCircle2,
   XCircle, Car, Phone, Image as ImageIcon
@@ -308,7 +308,7 @@ function ResidentHome({ profile, bookings, dues, family, setTab }) {
         <div>
           <SectionLabel>Get started</SectionLabel>
           <button onClick={() => setTab("household")} className="w-full rounded-xl p-4 text-left" style={{ background: C.brick }}>
-            <Contact size={18} color="#fff" />
+            <IdCard size={18} color="#fff" />
             <div className="f-body text-sm font-medium text-white mt-2">Add your household members to generate gate QR passes</div>
           </button>
         </div>
@@ -562,7 +562,7 @@ const USERNAME_DOMAIN = "gatehouse.local";
 
 function AdminResidents({ residents, family, token, onCreated }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
+  const [form, setForm] = useState({ firstName: "", lastName: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -571,15 +571,16 @@ function AdminResidents({ residents, family, token, onCreated }) {
   const previewUsername = form.blk && form.lot && form.phase ? usernameOf(form.blk, form.lot, form.phase) : null;
 
   async function submit() {
-    if (!form.name.trim() || !form.blk.trim() || !form.lot.trim() || !form.phase.trim()) return;
+    if (!form.firstName.trim() || !form.lastName.trim() || !form.blk.trim() || !form.lot.trim() || !form.phase.trim()) return;
     setBusy(true); setError(""); setResult(null);
     try {
       const username = usernameOf(form.blk, form.lot, form.phase);
       const email = `${username}@${USERNAME_DOMAIN}`;
-      const password = surnameOf(form.name);
-      await callFunction("admin-create-user", token, { ...form, email, role: "resident", password, family_member_count: Number(form.family_member_count) || 1 });
+      const name = `${form.firstName.trim()} ${form.lastName.trim()}`;
+      const password = form.lastName.trim();
+      await callFunction("admin-create-user", token, { ...form, name, email, role: "resident", password, family_member_count: Number(form.family_member_count) || 1 });
       setResult({ username, password });
-      setForm({ name: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
+      setForm({ firstName: "", lastName: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
       onCreated();
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
@@ -600,7 +601,10 @@ function AdminResidents({ residents, family, token, onCreated }) {
       {open && (
         <div className="rounded-xl p-4 space-y-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
           <SectionLabel>New resident household</SectionLabel>
-          <Field label="Full name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Juan Dela Cruz" />
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="First name" value={form.firstName} onChange={(e) => set("firstName", e.target.value)} placeholder="Juan" />
+            <Field label="Last name" value={form.lastName} onChange={(e) => set("lastName", e.target.value)} placeholder="Dela Cruz" />
+          </div>
           <div className="grid grid-cols-3 gap-2">
             <Field label="Block" value={form.blk} onChange={(e) => set("blk", e.target.value)} placeholder="4" />
             <Field label="Lot" value={form.lot} onChange={(e) => set("lot", e.target.value)} placeholder="12" />
@@ -611,7 +615,7 @@ function AdminResidents({ residents, family, token, onCreated }) {
           <Field label="Declared family member count" value={form.family_member_count} onChange={(e) => set("family_member_count", e.target.value)} type="number" min="1" />
           {previewUsername && (
             <p className="f-body text-[11px]" style={{ color: C.inkSoft }}>
-              Login username will be <span className="f-mono" style={{ color: C.ink }}>{previewUsername}</span>, password will be the surname <span className="f-mono" style={{ color: C.ink }}>{form.name.trim() ? surnameOf(form.name) : "—"}</span>.
+              Login username will be <span className="f-mono" style={{ color: C.ink }}>{previewUsername}</span>, password will be the last name <span className="f-mono" style={{ color: C.ink }}>{form.lastName.trim() || "—"}</span>.
             </p>
           )}
           {error && <Banner tone="brick">{error}</Banner>}
@@ -621,7 +625,7 @@ function AdminResidents({ residents, family, token, onCreated }) {
               <span className="f-mono">{result.username} / {result.password}</span>
             </Banner>
           )}
-          <button onClick={submit} disabled={busy || !form.name.trim() || !form.blk.trim() || !form.lot.trim() || !form.phase.trim()} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}>
+          <button onClick={submit} disabled={busy || !form.firstName.trim() || !form.lastName.trim() || !form.blk.trim() || !form.lot.trim() || !form.phase.trim()} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}>
             {busy ? <Loader2 size={15} className="animate-spin" /> : "Create resident account"}
           </button>
         </div>
@@ -1013,7 +1017,7 @@ export default function App() {
     { key: "home", label: "Home", icon: Home },
     { key: "book", label: "Book", icon: CalendarDays },
     { key: "dues", label: "Dues", icon: Wallet },
-    { key: "household", label: "Household", icon: Contact },
+    { key: "household", label: "Household", icon: IdCard },
   ];
   const adminNav = [
     { key: "overview", label: "Overview", icon: Home },
