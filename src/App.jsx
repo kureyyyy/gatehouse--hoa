@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Home, CalendarDays, Wallet, ShieldCheck, Plus, Waves, Users, Contact,
+  Home, CalendarDays, Wallet, ShieldCheck, Plus, Waves, Users, IdCard,
   Dumbbell, PartyPopper, TreePine, ScanLine, UserCheck, UserX, Camera,
   ArrowRight, Building2, LogOut, Loader2, AlertCircle, CheckCircle2,
   XCircle, Car, Phone, Image as ImageIcon
@@ -172,10 +172,13 @@ function Pill({ children, tone = "sage" }) {
   return <span className="f-mono text-[10px] uppercase tracking-widest px-2 py-1 rounded-full" style={{ background: t.bg, color: t.fg }}>{children}</span>;
 }
 function Field({ label, ...props }) {
+  const extra = props.type === "email"
+    ? { autoCapitalize: "none", autoCorrect: "off", spellCheck: false, inputMode: "email" }
+    : {};
   return (
     <div>
       {label && <div className="f-body text-[11px] font-medium mb-1" style={{ color: C.inkSoft }}>{label}</div>}
-      <input {...props} className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
+      <input {...extra} {...props} className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
     </div>
   );
 }
@@ -236,7 +239,7 @@ function AuthScreen({ onSignIn }) {
 
   async function submit() {
     setError(""); setBusy(true);
-    try { await onSignIn(email, password); }
+    try { await onSignIn(email.trim().toLowerCase(), password); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
@@ -301,7 +304,7 @@ function ResidentHome({ profile, bookings, dues, family, setTab }) {
         <div>
           <SectionLabel>Get started</SectionLabel>
           <button onClick={() => setTab("household")} className="w-full rounded-xl p-4 text-left" style={{ background: C.brick }}>
-            <Contact size={18} color="#fff" />
+            <IdCard size={18} color="#fff" />
             <div className="f-body text-sm font-medium text-white mt-2">Add your household members to generate gate QR passes</div>
           </button>
         </div>
@@ -553,12 +556,13 @@ function AdminResidents({ residents, family, token, onCreated }) {
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
   async function submit() {
-    if (!form.name.trim() || !form.email.trim()) return;
+    const email = form.email.trim().toLowerCase();
+    if (!form.name.trim() || !email) return;
     setBusy(true); setError(""); setResult(null);
     try {
       const password = genTempPassword();
-      const res = await callFunction("admin-create-user", token, { ...form, role: "resident", password, family_member_count: Number(form.family_member_count) || 1 });
-      setResult({ email: form.email, password });
+      const res = await callFunction("admin-create-user", token, { ...form, email, role: "resident", password, family_member_count: Number(form.family_member_count) || 1 });
+      setResult({ email, password });
       setForm({ name: "", email: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
       onCreated();
     } catch (e) { setError(e.message); }
@@ -629,12 +633,13 @@ function AdminStaff({ staff, token, onCreated }) {
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
   async function submit() {
-    if (!form.name.trim() || !form.email.trim()) return;
+    const email = form.email.trim().toLowerCase();
+    if (!form.name.trim() || !email) return;
     setBusy(true); setError(""); setResult(null);
     try {
       const password = genTempPassword();
-      await callFunction("admin-create-user", token, { ...form, password });
-      setResult({ email: form.email, password });
+      await callFunction("admin-create-user", token, { ...form, email, password });
+      setResult({ email, password });
       setForm({ name: "", email: "", phone: "", role: "security" });
       onCreated();
     } catch (e) { setError(e.message); }
@@ -972,7 +977,7 @@ export default function App() {
     { key: "home", label: "Home", icon: Home },
     { key: "book", label: "Book", icon: CalendarDays },
     { key: "dues", label: "Dues", icon: Wallet },
-    { key: "household", label: "Household", icon: Contact },
+    { key: "household", label: "Household", icon: IdCard },
   ];
   const adminNav = [
     { key: "overview", label: "Overview", icon: Home },
