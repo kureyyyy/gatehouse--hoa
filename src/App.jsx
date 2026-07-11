@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Home, CalendarDays, Wallet, ShieldCheck, Plus, Bell, Waves,
-  Dumbbell, PartyPopper, TreePine, ScanLine, UserCheck, UserX,
-  ArrowRight, Building2, LogOut, Loader2, AlertCircle
+  Home, CalendarDays, Wallet, ShieldCheck, Plus, Waves, Users, IdCard,
+  Dumbbell, PartyPopper, TreePine, ScanLine, UserCheck, UserX, Camera,
+  ArrowRight, Building2, LogOut, Loader2, AlertCircle, CheckCircle2,
+  XCircle, Car, Phone, Image as ImageIcon
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -20,14 +21,9 @@ async function rest(path, { method = "GET", token, body } = {}) {
   };
   if (method !== "GET") headers["Prefer"] = "return=representation";
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
+    method, headers, body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(errText || `Request failed (${res.status})`);
-  }
+  if (!res.ok) throw new Error((await res.text()) || `Request failed (${res.status})`);
   if (res.status === 204) return null;
   return res.json();
 }
@@ -43,8 +39,35 @@ async function authRequest(path, payload) {
   return data;
 }
 
+async function callFunction(name, token, payload) {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+async function uploadPhoto(file, token, folder) {
+  const ext = file.name.split(".").pop() || "jpg";
+  const path = `${folder}/${Date.now()}.${ext}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/photos/${path}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": file.type || "image/jpeg" },
+    body: file,
+  });
+  if (!res.ok) throw new Error((await res.text()) || "Upload failed");
+  return `${SUPABASE_URL}/storage/v1/object/public/photos/${path}`;
+}
+
+function qrImageUrl(code, size = 220) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=8&data=${encodeURIComponent(code)}`;
+}
+
 // ---------------------------------------------------------------------------
-// DESIGN TOKENS (same visual system as the prototype)
+// DESIGN TOKENS
 // ---------------------------------------------------------------------------
 const C = {
   paper: "#F7F6F1", paper2: "#EFEDE3", ink: "#1C2B24", inkSoft: "#4B5A50",
@@ -65,53 +88,63 @@ const AMENITY_ICONS = { "Swimming Pool": Waves, "Function Hall": PartyPopper, "G
 const SLOTS = ["7:00 – 9:00 AM", "10:00 AM – 12:00 PM", "2:00 – 4:00 PM", "5:00 – 7:00 PM"];
 
 function nextDays(n) {
-  const out = [];
-  const today = new Date();
-  for (let i = 0; i < n; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    out.push(d);
-  }
+  const out = []; const today = new Date();
+  for (let i = 0; i < n; i++) { const d = new Date(today); d.setDate(today.getDate() + i); out.push(d); }
   return out;
 }
 const DAYS = nextDays(6);
 const isoDate = (d) => d.toISOString().slice(0, 10);
 const fmtShort = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const fmtDate = (iso) => (iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "");
+const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "");
 function genCode() {
   return Math.random().toString(36).slice(2, 6).toUpperCase() + "-" + Math.floor(1000 + Math.random() * 9000);
 }
+function genTempPassword() {
+  return "Gate" + Math.floor(1000 + Math.random() * 9000) + "!";
+}
 
 // ---------------------------------------------------------------------------
-// SHARED UI PIECES
+// SHARED UI
 // ---------------------------------------------------------------------------
-function Pass({ eyebrow, title, subtitle, code, meta = [], accent = C.forest, accentBg = C.sageBg, right }) {
+function Pass({ eyebrow, title, subtitle, code, qrCode, photoUrl, meta = [], accent = C.forest, accentBg = C.sageBg, right }) {
   return (
     <div className="relative rounded-2xl overflow-hidden" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
       <div className="flex">
-        <div className="flex-1 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="f-mono text-[10px] uppercase tracking-widest" style={{ color: C.inkSoft }}>{eyebrow}</span>
-            {right}
-          </div>
-          <div className="f-display text-lg leading-tight" style={{ color: C.ink }}>{title}</div>
-          {subtitle && <div className="f-body text-sm mt-0.5" style={{ color: C.inkSoft }}>{subtitle}</div>}
-          {meta.length > 0 && (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
-              {meta.map((m, i) => (
-                <div key={i} className="f-body text-xs" style={{ color: C.inkSoft }}>
-                  <span style={{ color: C.ink, fontWeight: 600 }}>{m.label}</span>{" "}{m.value}
-                </div>
-              ))}
-            </div>
+        <div className="flex-1 p-4 flex gap-3">
+          {photoUrl && (
+            <img src={photoUrl} alt="" className="w-12 h-12 rounded-full object-cover shrink-0" style={{ border: `1px solid ${C.line}` }} />
           )}
+          <div className="min-w-0">
+            <div className="flex items-center justify-between mb-2 gap-2">
+              <span className="f-mono text-[10px] uppercase tracking-widest" style={{ color: C.inkSoft }}>{eyebrow}</span>
+              {right}
+            </div>
+            <div className="f-display text-lg leading-tight" style={{ color: C.ink }}>{title}</div>
+            {subtitle && <div className="f-body text-sm mt-0.5" style={{ color: C.inkSoft }}>{subtitle}</div>}
+            {meta.length > 0 && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
+                {meta.map((m, i) => (
+                  <div key={i} className="f-body text-xs" style={{ color: C.inkSoft }}>
+                    <span style={{ color: C.ink, fontWeight: 600 }}>{m.label}</span>{" "}{m.value}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        {code && (
-          <div className="relative flex flex-col items-center justify-center px-3" style={{ background: accentBg, borderLeft: `1.5px dashed ${C.line}`, minWidth: "92px" }}>
+        {(code || qrCode) && (
+          <div className="relative flex flex-col items-center justify-center px-3 py-2" style={{ background: accentBg, borderLeft: `1.5px dashed ${C.line}`, minWidth: qrCode ? "116px" : "92px" }}>
             <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full" style={{ background: C.paper }} />
             <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full" style={{ background: C.paper }} />
-            <span className="f-mono text-[9px] uppercase tracking-widest mb-1" style={{ color: accent }}>Code</span>
-            <span className="f-mono text-sm font-semibold text-center" style={{ color: accent }}>{code}</span>
+            {qrCode ? (
+              <img src={qrImageUrl(qrCode, 90)} alt="QR code" className="w-[72px] h-[72px] rounded-md bg-white p-1" />
+            ) : (
+              <>
+                <span className="f-mono text-[9px] uppercase tracking-widest mb-1" style={{ color: accent }}>Code</span>
+                <span className="f-mono text-sm font-semibold text-center" style={{ color: accent }}>{code}</span>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -138,15 +171,23 @@ function Pill({ children, tone = "sage" }) {
   const t = map[tone];
   return <span className="f-mono text-[10px] uppercase tracking-widest px-2 py-1 rounded-full" style={{ background: t.bg, color: t.fg }}>{children}</span>;
 }
+function Field({ label, ...props }) {
+  return (
+    <div>
+      {label && <div className="f-body text-[11px] font-medium mb-1" style={{ color: C.inkSoft }}>{label}</div>}
+      <input {...props} className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
+    </div>
+  );
+}
 function BottomNav({ items, active, onChange }) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 flex justify-around px-2 pt-2" style={{ background: "#fff", borderTop: `1px solid ${C.line}`, paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))", maxWidth: "480px", margin: "0 auto" }}>
+    <div className="fixed bottom-0 left-0 right-0 flex justify-around px-1 pt-2" style={{ background: "#fff", borderTop: `1px solid ${C.line}`, paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))", maxWidth: "480px", margin: "0 auto" }}>
       {items.map((it) => {
         const isActive = active === it.key;
         return (
-          <button key={it.key} onClick={() => onChange(it.key)} className="flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg" style={{ color: isActive ? C.forest : C.inkSoft }}>
-            <it.icon size={20} strokeWidth={isActive ? 2.3 : 1.8} />
-            <span className="f-body text-[10px] font-medium">{it.label}</span>
+          <button key={it.key} onClick={() => onChange(it.key)} className="flex flex-col items-center gap-1 px-2 py-1.5 rounded-lg" style={{ color: isActive ? C.forest : C.inkSoft }}>
+            <it.icon size={19} strokeWidth={isActive ? 2.3 : 1.8} />
+            <span className="f-body text-[9.5px] font-medium">{it.label}</span>
           </button>
         );
       })}
@@ -173,38 +214,31 @@ function TopBar({ title, subtitle, onSignOut }) {
     </div>
   );
 }
+function Banner({ tone = "brick", children }) {
+  const bg = tone === "brick" ? C.brickBg : C.sageBg;
+  const fg = tone === "brick" ? C.brick : C.forest;
+  const Icon = tone === "brick" ? AlertCircle : CheckCircle2;
+  return (
+    <div className="flex items-start gap-1.5 f-body text-xs px-3 py-2 rounded-lg" style={{ background: bg, color: fg }}>
+      <Icon size={14} className="mt-0.5 shrink-0" /> {children}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
-// AUTH SCREEN
+// AUTH — sign in only, accounts are admin-provisioned
 // ---------------------------------------------------------------------------
-function AuthScreen({ onSignIn, onSignUp }) {
-  const [mode, setMode] = useState("signin");
+function AuthScreen({ onSignIn }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [unit, setUnit] = useState("");
-  const [role, setRole] = useState("resident");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
 
   async function submit() {
-    setError(""); setNotice(""); setBusy(true);
-    try {
-      if (mode === "signin") {
-        await onSignIn(email, password);
-      } else {
-        const result = await onSignUp(email, password, name, unit, role);
-        if (result === "needs-confirmation") {
-          setNotice("Account created. Check your email to confirm, then sign in.");
-          setMode("signin");
-        }
-      }
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
+    setError(""); setBusy(true);
+    try { await onSignIn(email, password); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -218,67 +252,42 @@ function AuthScreen({ onSignIn, onSignUp }) {
         <div className="f-display text-3xl text-white">Sunrise Meadows</div>
         <div className="f-body text-sm mt-1" style={{ color: "#B9C9BE" }}>Security · Amenities · HOA Dues</div>
       </div>
-
       <div className="rounded-2xl p-5 space-y-3" style={{ background: "#fff" }}>
-        <div className="flex gap-1.5 mb-1">
-          <button onClick={() => setMode("signin")} className="flex-1 f-body text-sm font-medium py-2 rounded-lg" style={{ background: mode === "signin" ? C.forest : C.paper2, color: mode === "signin" ? "#fff" : C.inkSoft }}>Sign in</button>
-          <button onClick={() => setMode("signup")} className="flex-1 f-body text-sm font-medium py-2 rounded-lg" style={{ background: mode === "signup" ? C.forest : C.paper2, color: mode === "signup" ? "#fff" : C.inkSoft }}>Sign up</button>
-        </div>
-
-        {mode === "signup" && (
-          <>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
-            <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="Unit (e.g. Blk 4 Lot 12)" className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
-            <div>
-              <SectionLabel>Role (demo only)</SectionLabel>
-              <div className="flex gap-1.5">
-                {["resident", "admin", "security"].map((r) => (
-                  <button key={r} onClick={() => setRole(r)} className="flex-1 f-body text-xs font-medium py-2 rounded-lg capitalize" style={{ background: role === r ? C.ink : C.paper, color: role === r ? "#fff" : C.inkSoft, border: `1px solid ${role === r ? C.ink : C.line}` }}>{r}</button>
-                ))}
-              </div>
-              <p className="f-body text-[10px] mt-1" style={{ color: C.inkSoft }}>In production, admin/security accounts are provisioned by an HOA admin, not self-selected.</p>
-            </div>
-          </>
-        )}
-
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
-        <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
-
-        {error && (
-          <div className="flex items-start gap-1.5 f-body text-xs px-3 py-2 rounded-lg" style={{ background: C.brickBg, color: C.brick }}>
-            <AlertCircle size={14} className="mt-0.5 shrink-0" /> {error}
-          </div>
-        )}
-        {notice && (
-          <div className="f-body text-xs px-3 py-2 rounded-lg" style={{ background: C.sageBg, color: C.forest }}>{notice}</div>
-        )}
-
+        <SectionLabel>Sign in</SectionLabel>
+        <Field value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" />
+        <Field value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" />
+        {error && <Banner tone="brick">{error}</Banner>}
         <button onClick={submit} disabled={busy || !email || !password} className="f-body text-sm font-medium w-full py-3 rounded-xl flex items-center justify-center gap-1.5" style={{ background: busy || !email || !password ? C.paper2 : C.forest, color: busy || !email || !password ? "#A4ABA3" : "#fff" }}>
-          {busy ? <Loader2 size={15} className="animate-spin" /> : mode === "signin" ? "Sign in" : "Create account"}
+          {busy ? <Loader2 size={15} className="animate-spin" /> : "Sign in"}
         </button>
+        <p className="f-body text-[11px] text-center pt-1" style={{ color: C.inkSoft }}>
+          Accounts are created by your HOA admin. Contact the office if you don't have login details yet.
+        </p>
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// RESIDENT SCREENS
+// RESIDENT: HOME
 // ---------------------------------------------------------------------------
-function ResidentHome({ profile, bookings, dues, visitors, amenities, setTab }) {
+function ResidentHome({ profile, bookings, dues, family, setTab }) {
   const myBookings = bookings.filter((b) => b.status !== "cancelled");
   const myDue = dues.find((d) => d.status !== "paid");
-  const myVisitors = visitors.filter((v) => v.status !== "checked-out");
   return (
     <div className="px-4 py-4 space-y-5">
-      <div>
-        <div className="f-body text-sm" style={{ color: C.inkSoft }}>Welcome back,</div>
-        <div className="f-display text-2xl" style={{ color: C.ink }}>{profile.name.split(" ")[0]}</div>
-        <div className="f-mono text-xs mt-1" style={{ color: C.inkSoft }}>{profile.unit}</div>
+      <div className="flex items-center gap-3">
+        {profile.photo_url && <img src={profile.photo_url} className="w-14 h-14 rounded-full object-cover" style={{ border: `1px solid ${C.line}` }} />}
+        <div>
+          <div className="f-body text-sm" style={{ color: C.inkSoft }}>Welcome back,</div>
+          <div className="f-display text-2xl" style={{ color: C.ink }}>{profile.name.split(" ")[0]}</div>
+          <div className="f-mono text-xs mt-0.5" style={{ color: C.inkSoft }}>Blk {profile.blk || "—"} Lot {profile.lot || "—"}, {profile.phase || "—"}</div>
+        </div>
       </div>
       <div className="flex gap-3">
         <StatCard label="Dues status" value={myDue ? "Due" : "Paid"} accent={myDue ? C.brick : C.sage} sub={myDue ? `₱${Number(myDue.amount).toLocaleString()}` : "You're all set"} />
-        <StatCard label="Upcoming" value={myBookings.length} accent={C.forest} sub="bookings" />
-        <StatCard label="Active passes" value={myVisitors.length} accent={C.gold} sub="visitors" />
+        <StatCard label="Bookings" value={myBookings.length} accent={C.forest} sub="upcoming" />
+        <StatCard label="Household" value={family.length} accent={C.gold} sub="members" />
       </div>
       {myDue && (
         <div>
@@ -288,15 +297,13 @@ function ResidentHome({ profile, bookings, dues, visitors, amenities, setTab }) 
           </button>
         </div>
       )}
-      {myBookings.length > 0 && (
+      {family.length === 0 && (
         <div>
-          <SectionLabel>Your bookings</SectionLabel>
-          <div className="space-y-2">
-            {myBookings.slice(0, 2).map((b) => {
-              const am = amenities.find((a) => a.id === b.amenity_id);
-              return <Pass key={b.id} eyebrow="Booking" title={am?.name || "Amenity"} subtitle={`${fmtDate(b.booking_date)} · ${b.slot}`} code={b.id.slice(0, 8).toUpperCase()} accent={C.forest} accentBg={C.sageBg} right={<Pill tone="sage">confirmed</Pill>} />;
-            })}
-          </div>
+          <SectionLabel>Get started</SectionLabel>
+          <button onClick={() => setTab("household")} className="w-full rounded-xl p-4 text-left" style={{ background: C.brick }}>
+            <IdCard size={18} color="#fff" />
+            <div className="f-body text-sm font-medium text-white mt-2">Add your household members to generate gate QR passes</div>
+          </button>
         </div>
       )}
       <div className="grid grid-cols-2 gap-3">
@@ -304,15 +311,18 @@ function ResidentHome({ profile, bookings, dues, visitors, amenities, setTab }) 
           <CalendarDays size={18} color="#fff" />
           <div className="f-body text-sm font-medium text-white mt-2">Book an amenity</div>
         </button>
-        <button onClick={() => setTab("passes")} className="rounded-xl p-4 text-left" style={{ background: C.brick }}>
+        <button onClick={() => setTab("household")} className="rounded-xl p-4 text-left" style={{ background: C.gold }}>
           <ShieldCheck size={18} color="#fff" />
-          <div className="f-body text-sm font-medium text-white mt-2">Issue a gate pass</div>
+          <div className="f-body text-sm font-medium text-white mt-2">View household QR passes</div>
         </button>
       </div>
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// RESIDENT: BOOK
+// ---------------------------------------------------------------------------
 function ResidentBook({ profile, bookings, amenities, addBooking, busy }) {
   const [amenityId, setAmenityId] = useState(amenities[0]?.id || null);
   const [dayIdx, setDayIdx] = useState(0);
@@ -332,19 +342,15 @@ function ResidentBook({ profile, bookings, amenities, addBooking, busy }) {
     setError("");
     try {
       const b = await addBooking({ amenity_id: amenityId, booking_date: dateVal, slot });
-      setConfirmed(b);
-      setSlot(null);
-    } catch (e) {
-      setError(e.message.includes("duplicate") ? "That slot was just taken — pick another." : e.message);
-    }
+      setConfirmed(b); setSlot(null);
+    } catch (e) { setError(e.message.includes("duplicate") ? "That slot was just taken — pick another." : e.message); }
   }
 
   if (confirmed) {
     return (
       <div className="px-4 py-4 space-y-4">
         <SectionLabel>Booking confirmed</SectionLabel>
-        <Pass eyebrow="Amenity pass" title={amenity?.name} subtitle={`${fmtDate(confirmed.booking_date)} · ${confirmed.slot}`} code={confirmed.id.slice(0, 8).toUpperCase()} meta={[{ label: "Resident", value: profile.name }, { label: "Unit", value: profile.unit }]} accent={C.forest} accentBg={C.sageBg} right={<Pill tone="sage">confirmed</Pill>} />
-        <p className="f-body text-xs" style={{ color: C.inkSoft }}>Show this pass at the amenity entrance.</p>
+        <Pass eyebrow="Amenity pass" title={amenity?.name} subtitle={`${fmtDate(confirmed.booking_date)} · ${confirmed.slot}`} code={confirmed.id.slice(0, 8).toUpperCase()} meta={[{ label: "Resident", value: profile.name }, { label: "Unit", value: `Blk ${profile.blk} Lot ${profile.lot}` }]} accent={C.forest} accentBg={C.sageBg} right={<Pill tone="sage">confirmed</Pill>} />
         <button onClick={() => setConfirmed(null)} className="f-body text-sm font-medium w-full py-3 rounded-xl" style={{ background: C.paper2, color: C.ink }}>Book another</button>
       </div>
     );
@@ -394,8 +400,7 @@ function ResidentBook({ profile, bookings, amenities, addBooking, busy }) {
             const active = slot === s;
             return (
               <button key={s} disabled={taken} onClick={() => setSlot(s)} className="rounded-xl px-3 py-2.5 f-body text-xs font-medium text-left" style={{ background: taken ? C.paper2 : active ? C.sageBg : "#fff", border: `1px solid ${active ? C.sage : C.line}`, color: taken ? "#A4ABA3" : C.ink, textDecoration: taken ? "line-through" : "none" }}>
-                {s}
-                {taken && <div className="text-[10px] mt-0.5" style={{ color: "#A4ABA3" }}>Booked</div>}
+                {s}{taken && <div className="text-[10px] mt-0.5" style={{ color: "#A4ABA3" }}>Booked</div>}
               </button>
             );
           })}
@@ -409,6 +414,9 @@ function ResidentBook({ profile, bookings, amenities, addBooking, busy }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// RESIDENT: DUES
+// ---------------------------------------------------------------------------
 function ResidentDues({ profile, dues, payDue }) {
   const outstanding = dues.filter((d) => d.status !== "paid");
   const totalDue = outstanding.reduce((s, d) => s + Number(d.amount), 0);
@@ -416,7 +424,7 @@ function ResidentDues({ profile, dues, payDue }) {
     <div className="px-4 py-4 space-y-5">
       <div>
         <div className="f-display text-xl" style={{ color: C.ink }}>HOA Dues</div>
-        <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>{profile.unit}</div>
+        <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>Blk {profile.blk} Lot {profile.lot}, {profile.phase}</div>
       </div>
       <div className="rounded-2xl p-5" style={{ background: C.ink }}>
         <div className="f-body text-xs" style={{ color: "#B9C2BC" }}>Total outstanding</div>
@@ -425,13 +433,11 @@ function ResidentDues({ profile, dues, payDue }) {
       </div>
       <div className="space-y-2">
         <SectionLabel>Invoices</SectionLabel>
-        {dues.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No invoices yet. Your HOA admin will post dues here.</p>}
+        {dues.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No invoices yet.</p>}
         {dues.map((d) => (
           <div key={d.id}>
             <Pass eyebrow={d.status === "paid" ? "Receipt" : d.status} title={`${d.month} Dues`} subtitle={d.status === "paid" ? `Paid ${fmtDate(d.paid_date)}` : `Due ${fmtDate(d.due_date)}`} code={`₱${Number(d.amount).toLocaleString()}`} accent={d.status === "paid" ? C.sage : d.status === "overdue" ? C.brick : C.gold} accentBg={d.status === "paid" ? C.sageBg : d.status === "overdue" ? C.brickBg : C.goldBg} right={<Pill tone={d.status === "paid" ? "sage" : d.status === "overdue" ? "brick" : "gold"}>{d.status}</Pill>} />
-            {d.status !== "paid" && (
-              <button onClick={() => payDue(d.id)} className="f-body text-xs font-medium w-full mt-1.5 py-2.5 rounded-lg" style={{ background: C.forest, color: "#fff" }}>Pay ₱{Number(d.amount).toLocaleString()} now</button>
-            )}
+            {d.status !== "paid" && <button onClick={() => payDue(d.id)} className="f-body text-xs font-medium w-full mt-1.5 py-2.5 rounded-lg" style={{ background: C.forest, color: "#fff" }}>Pay ₱{Number(d.amount).toLocaleString()} now</button>}
           </div>
         ))}
       </div>
@@ -439,41 +445,62 @@ function ResidentDues({ profile, dues, payDue }) {
   );
 }
 
-function ResidentPasses({ visitors, addVisitor, busy }) {
+// ---------------------------------------------------------------------------
+// RESIDENT: HOUSEHOLD (family members + their QR passes)
+// ---------------------------------------------------------------------------
+function ResidentHousehold({ profile, family, addMember, uploadHouseholdPhoto, token, busy }) {
   const [name, setName] = useState("");
-  const [purpose, setPurpose] = useState("");
-  const [dayIdx, setDayIdx] = useState(0);
+  const [relation, setRelation] = useState("");
+  const [file, setFile] = useState(null);
+  const [error, setError] = useState("");
 
-  async function issue() {
+  async function submit() {
     if (!name.trim()) return;
-    await addVisitor({ name: name.trim(), purpose: purpose.trim() || "Personal visit", visit_date: isoDate(DAYS[dayIdx]), code: genCode(), status: "pending" });
-    setName(""); setPurpose("");
+    setError("");
+    try {
+      let photo_url = null;
+      if (file) photo_url = await uploadPhoto(file, token, `family/${profile.id}`);
+      await addMember({ name: name.trim(), relation: relation.trim() || "Family member", photo_url });
+      setName(""); setRelation(""); setFile(null);
+    } catch (e) { setError(e.message); }
   }
 
   return (
     <div className="px-4 py-4 space-y-5">
       <div>
-        <div className="f-display text-xl" style={{ color: C.ink }}>Gate passes</div>
-        <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>Pre-register a visitor for faster gate entry.</div>
+        <div className="f-display text-xl" style={{ color: C.ink }}>Household</div>
+        <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>Every member gets their own gate QR pass.</div>
       </div>
-      <div className="rounded-xl p-4 space-y-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
-        <SectionLabel>New visitor pass</SectionLabel>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Visitor name" className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
-        <input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Purpose (e.g. Family visit, Delivery)" className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
-        <div className="flex gap-2 overflow-x-auto">
-          {DAYS.slice(0, 4).map((d, i) => (
-            <button key={i} onClick={() => setDayIdx(i)} className="f-body text-xs px-3 py-1.5 rounded-full shrink-0" style={{ background: dayIdx === i ? C.forest : C.paper, color: dayIdx === i ? "#fff" : C.inkSoft, border: `1px solid ${dayIdx === i ? C.forest : C.line}` }}>{fmtShort(d)}</button>
-          ))}
+
+      <div className="rounded-xl p-4 space-y-2" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
+        <SectionLabel>On file with the HOA</SectionLabel>
+        <div className="grid grid-cols-2 gap-y-2 gap-x-3">
+          <div className="f-body text-xs" style={{ color: C.inkSoft }}><Car size={12} className="inline mr-1" />{profile.vehicle || "No vehicle on file"}</div>
+          <div className="f-body text-xs" style={{ color: C.inkSoft }}><Phone size={12} className="inline mr-1" />{profile.phone || "No contact on file"}</div>
+          <div className="f-body text-xs col-span-2" style={{ color: C.inkSoft }}>Declared household size: {profile.family_member_count || 1}</div>
         </div>
-        <button onClick={issue} disabled={!name.trim() || busy} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: name.trim() && !busy ? C.brick : C.paper2, color: name.trim() && !busy ? "#fff" : "#A4ABA3" }}>
-          {busy ? <Loader2 size={15} className="animate-spin" /> : <><Plus size={15} /> Issue pass</>}
+      </div>
+
+      <div className="rounded-xl p-4 space-y-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
+        <SectionLabel>Add a household member</SectionLabel>
+        <Field value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+        <Field value={relation} onChange={(e) => setRelation(e.target.value)} placeholder="Relation (e.g. Spouse, Child, Helper)" />
+        <label className="f-body text-xs flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.inkSoft }}>
+          <ImageIcon size={14} />
+          {file ? file.name : "Add a photo (optional)"}
+          <input type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        </label>
+        {error && <Banner tone="brick">{error}</Banner>}
+        <button onClick={submit} disabled={!name.trim() || busy} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: name.trim() && !busy ? C.brick : C.paper2, color: name.trim() && !busy ? "#fff" : "#A4ABA3" }}>
+          {busy ? <Loader2 size={15} className="animate-spin" /> : <><Plus size={15} /> Generate QR pass</>}
         </button>
       </div>
+
       <div className="space-y-2">
-        <SectionLabel>My passes</SectionLabel>
-        {visitors.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No passes issued yet.</p>}
-        {visitors.map((v) => (
-          <Pass key={v.id} eyebrow={fmtDate(v.visit_date)} title={v.name} subtitle={v.purpose} code={v.code} accent={C.brick} accentBg={C.brickBg} right={<Pill tone={v.status === "checked-in" ? "sage" : v.status === "checked-out" ? "ink" : "gold"}>{v.status}</Pill>} />
+        <SectionLabel>Household QR passes ({family.length})</SectionLabel>
+        {family.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No members added yet.</p>}
+        {family.map((m) => (
+          <Pass key={m.id} eyebrow={m.relation} title={m.name} subtitle={`Blk ${profile.blk} Lot ${profile.lot}, ${profile.phase}`} qrCode={m.qr_code} photoUrl={m.photo_url} accent={C.gold} accentBg={C.goldBg} right={<Pill tone="gold">resident</Pill>} />
         ))}
       </div>
     </div>
@@ -481,13 +508,12 @@ function ResidentPasses({ visitors, addVisitor, busy }) {
 }
 
 // ---------------------------------------------------------------------------
-// ADMIN SCREENS
+// ADMIN: OVERVIEW
 // ---------------------------------------------------------------------------
-function AdminOverview({ residents, bookings, dues, visitors }) {
+function AdminOverview({ residents, bookings, dues, family, entryLogsToday }) {
   const paidCount = dues.filter((d) => d.status === "paid").length;
   const collectionRate = dues.length ? Math.round((paidCount / dues.length) * 100) : 0;
   const pendingBookings = bookings.filter((b) => b.status === "confirmed").length;
-  const onSiteVisitors = visitors.filter((v) => v.status === "checked-in").length;
   return (
     <div className="px-4 py-4 space-y-5">
       <div>
@@ -495,17 +521,17 @@ function AdminOverview({ residents, bookings, dues, visitors }) {
         <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>Live data from Supabase</div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Residents" value={residents.length} accent={C.forest} sub="registered units" />
+        <StatCard label="Households" value={residents.length} accent={C.forest} sub={`${family.length} registered members`} />
         <StatCard label="Dues collected" value={`${collectionRate}%`} accent={C.gold} sub={`${paidCount}/${dues.length} invoices`} />
         <StatCard label="Bookings" value={pendingBookings} accent={C.sage} sub="confirmed" />
-        <StatCard label="On-site now" value={onSiteVisitors} accent={C.brick} sub="checked-in visitors" />
+        <StatCard label="Gate scans" value={entryLogsToday.length} accent={C.brick} sub="today" />
       </div>
       <div>
         <SectionLabel>Overdue dues</SectionLabel>
         <div className="space-y-2">
           {dues.filter((d) => d.status === "overdue").map((d) => {
             const r = residents.find((x) => x.id === d.resident_id);
-            return <Pass key={d.id} eyebrow={r?.unit || ""} title={r?.name || "Resident"} subtitle={`${d.month} dues overdue`} code={`₱${Number(d.amount).toLocaleString()}`} accent={C.brick} accentBg={C.brickBg} right={<Pill tone="brick">overdue</Pill>} />;
+            return <Pass key={d.id} eyebrow={r ? `Blk ${r.blk} Lot ${r.lot}` : ""} title={r?.name || "Resident"} subtitle={`${d.month} dues overdue`} code={`₱${Number(d.amount).toLocaleString()}`} accent={C.brick} accentBg={C.brickBg} right={<Pill tone="brick">overdue</Pill>} />;
           })}
           {dues.filter((d) => d.status === "overdue").length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No overdue accounts. Nice.</p>}
         </div>
@@ -514,6 +540,155 @@ function AdminOverview({ residents, bookings, dues, visitors }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// ADMIN: RESIDENTS (create + list)
+// ---------------------------------------------------------------------------
+function AdminResidents({ residents, family, token, onCreated }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+
+  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+
+  async function submit() {
+    if (!form.name.trim() || !form.email.trim()) return;
+    setBusy(true); setError(""); setResult(null);
+    try {
+      const password = genTempPassword();
+      const res = await callFunction("admin-create-user", token, { ...form, role: "resident", password, family_member_count: Number(form.family_member_count) || 1 });
+      setResult({ email: form.email, password });
+      setForm({ name: "", email: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
+      onCreated();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="px-4 py-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="f-display text-xl" style={{ color: C.ink }}>Residents</div>
+          <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>{residents.length} households</div>
+        </div>
+        <button onClick={() => setOpen((o) => !o)} className="f-body text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1" style={{ background: C.forest, color: "#fff" }}>
+          <Plus size={14} /> Add
+        </button>
+      </div>
+
+      {open && (
+        <div className="rounded-xl p-4 space-y-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
+          <SectionLabel>New resident household</SectionLabel>
+          <Field label="Full name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Juan Dela Cruz" />
+          <Field label="Email (used for login)" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="juan@email.com" type="email" />
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="Block" value={form.blk} onChange={(e) => set("blk", e.target.value)} placeholder="4" />
+            <Field label="Lot" value={form.lot} onChange={(e) => set("lot", e.target.value)} placeholder="12" />
+            <Field label="Phase" value={form.phase} onChange={(e) => set("phase", e.target.value)} placeholder="2" />
+          </div>
+          <Field label="Vehicle (plate / model)" value={form.vehicle} onChange={(e) => set("vehicle", e.target.value)} placeholder="ABC 1234, Toyota Vios" />
+          <Field label="Contact number" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="0917 555 0142" />
+          <Field label="Declared family member count" value={form.family_member_count} onChange={(e) => set("family_member_count", e.target.value)} type="number" min="1" />
+          {error && <Banner tone="brick">{error}</Banner>}
+          {result && (
+            <Banner tone="sage">
+              Account created. Share these login details with the resident: <br />
+              <span className="f-mono">{result.email} / {result.password}</span>
+            </Banner>
+          )}
+          <button onClick={submit} disabled={busy || !form.name.trim() || !form.email.trim()} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}>
+            {busy ? <Loader2 size={15} className="animate-spin" /> : "Create resident account"}
+          </button>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {residents.map((r) => {
+          const members = family.filter((m) => m.resident_id === r.id);
+          return (
+            <Pass key={r.id} eyebrow={`Blk ${r.blk || "—"} Lot ${r.lot || "—"}, ${r.phase || "—"}`} title={r.name} subtitle={`${r.phone || "No contact"} · ${r.vehicle || "No vehicle"}`} code={`${members.length}/${r.family_member_count || 1}`} accent={C.forest} accentBg={C.sageBg} right={<Pill tone="sage">{members.length} QR issued</Pill>} />
+          );
+        })}
+        {residents.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No residents yet — add the first household above.</p>}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ADMIN: STAFF (admin + security accounts)
+// ---------------------------------------------------------------------------
+function AdminStaff({ staff, token, onCreated }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", phone: "", role: "security" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+
+  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+
+  async function submit() {
+    if (!form.name.trim() || !form.email.trim()) return;
+    setBusy(true); setError(""); setResult(null);
+    try {
+      const password = genTempPassword();
+      await callFunction("admin-create-user", token, { ...form, password });
+      setResult({ email: form.email, password });
+      setForm({ name: "", email: "", phone: "", role: "security" });
+      onCreated();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="px-4 py-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="f-display text-xl" style={{ color: C.ink }}>Staff accounts</div>
+          <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>Admins &amp; security guards</div>
+        </div>
+        <button onClick={() => setOpen((o) => !o)} className="f-body text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1" style={{ background: C.forest, color: "#fff" }}>
+          <Plus size={14} /> Add
+        </button>
+      </div>
+
+      {open && (
+        <div className="rounded-xl p-4 space-y-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
+          <SectionLabel>New staff account</SectionLabel>
+          <div className="flex gap-2">
+            {["security", "admin"].map((r) => (
+              <button key={r} onClick={() => set("role", r)} className="flex-1 f-body text-xs font-medium py-2 rounded-lg capitalize" style={{ background: form.role === r ? C.ink : C.paper, color: form.role === r ? "#fff" : C.inkSoft, border: `1px solid ${form.role === r ? C.ink : C.line}` }}>{r}</button>
+            ))}
+          </div>
+          <Field label="Full name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Full name" />
+          <Field label="Email (used for login)" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="name@email.com" type="email" />
+          <Field label="Contact number" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="0917 555 0142" />
+          {error && <Banner tone="brick">{error}</Banner>}
+          {result && (
+            <Banner tone="sage">
+              Account created. Share these login details: <br />
+              <span className="f-mono">{result.email} / {result.password}</span>
+            </Banner>
+          )}
+          <button onClick={submit} disabled={busy || !form.name.trim() || !form.email.trim()} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}>
+            {busy ? <Loader2 size={15} className="animate-spin" /> : "Create staff account"}
+          </button>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {staff.map((s) => (
+          <Pass key={s.id} eyebrow={s.role} title={s.name} subtitle={s.phone || ""} accent={s.role === "admin" ? C.forest : C.brick} accentBg={s.role === "admin" ? C.sageBg : C.brickBg} right={<Pill tone={s.role === "admin" ? "sage" : "brick"}>{s.role}</Pill>} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ADMIN: BOOKINGS / DUES
+// ---------------------------------------------------------------------------
 function AdminBookings({ bookings, residents, amenities, updateBooking }) {
   return (
     <div className="px-4 py-4 space-y-4">
@@ -527,10 +702,8 @@ function AdminBookings({ bookings, residents, amenities, updateBooking }) {
           const r = residents.find((x) => x.id === b.resident_id);
           return (
             <div key={b.id}>
-              <Pass eyebrow={am?.name || "Amenity"} title={r?.name || "Resident"} subtitle={`${fmtDate(b.booking_date)} · ${b.slot} · ${r?.unit || ""}`} code={b.id.slice(0, 8).toUpperCase()} accent={b.status === "cancelled" ? "#A4ABA3" : C.forest} accentBg={b.status === "cancelled" ? C.paper2 : C.sageBg} right={<Pill tone={b.status === "cancelled" ? "ink" : "sage"}>{b.status}</Pill>} />
-              {b.status === "confirmed" && (
-                <button onClick={() => updateBooking(b.id, "cancelled")} className="f-body text-xs font-medium mt-1.5 px-3 py-1.5 rounded-lg" style={{ background: C.paper2, color: C.brick }}>Cancel booking</button>
-              )}
+              <Pass eyebrow={am?.name || "Amenity"} title={r?.name || "Resident"} subtitle={`${fmtDate(b.booking_date)} · ${b.slot}`} code={b.id.slice(0, 8).toUpperCase()} accent={b.status === "cancelled" ? "#A4ABA3" : C.forest} accentBg={b.status === "cancelled" ? C.paper2 : C.sageBg} right={<Pill tone={b.status === "cancelled" ? "ink" : "sage"}>{b.status}</Pill>} />
+              {b.status === "confirmed" && <button onClick={() => updateBooking(b.id, "cancelled")} className="f-body text-xs font-medium mt-1.5 px-3 py-1.5 rounded-lg" style={{ background: C.paper2, color: C.brick }}>Cancel booking</button>}
             </div>
           );
         })}
@@ -538,7 +711,6 @@ function AdminBookings({ bookings, residents, amenities, updateBooking }) {
     </div>
   );
 }
-
 function AdminDues({ dues, residents, payDue }) {
   return (
     <div className="px-4 py-4 space-y-4">
@@ -551,10 +723,8 @@ function AdminDues({ dues, residents, payDue }) {
           const r = residents.find((x) => x.id === d.resident_id);
           return (
             <div key={d.id}>
-              <Pass eyebrow={r?.unit || ""} title={r?.name || "Resident"} subtitle={`${d.month} · ${d.status === "paid" ? "Paid " + fmtDate(d.paid_date) : "Due " + fmtDate(d.due_date)}`} code={`₱${Number(d.amount).toLocaleString()}`} accent={d.status === "paid" ? C.sage : d.status === "overdue" ? C.brick : C.gold} accentBg={d.status === "paid" ? C.sageBg : d.status === "overdue" ? C.brickBg : C.goldBg} right={<Pill tone={d.status === "paid" ? "sage" : d.status === "overdue" ? "brick" : "gold"}>{d.status}</Pill>} />
-              {d.status !== "paid" && (
-                <button onClick={() => payDue(d.id)} className="f-body text-xs font-medium mt-1.5 px-3 py-1.5 rounded-lg" style={{ background: C.forest, color: "#fff" }}>Mark as paid</button>
-              )}
+              <Pass eyebrow={r ? `Blk ${r.blk} Lot ${r.lot}` : ""} title={r?.name || "Resident"} subtitle={`${d.month} · ${d.status === "paid" ? "Paid " + fmtDate(d.paid_date) : "Due " + fmtDate(d.due_date)}`} code={`₱${Number(d.amount).toLocaleString()}`} accent={d.status === "paid" ? C.sage : d.status === "overdue" ? C.brick : C.gold} accentBg={d.status === "paid" ? C.sageBg : d.status === "overdue" ? C.brickBg : C.goldBg} right={<Pill tone={d.status === "paid" ? "sage" : d.status === "overdue" ? "brick" : "gold"}>{d.status}</Pill>} />
+              {d.status !== "paid" && <button onClick={() => payDue(d.id)} className="f-body text-xs font-medium mt-1.5 px-3 py-1.5 rounded-lg" style={{ background: C.forest, color: "#fff" }}>Mark as paid</button>}
             </div>
           );
         })}
@@ -565,87 +735,126 @@ function AdminDues({ dues, residents, payDue }) {
 }
 
 // ---------------------------------------------------------------------------
-// SECURITY SCREEN
+// SECURITY: SCAN (camera QR scanner + manual fallback)
 // ---------------------------------------------------------------------------
-function SecurityGate({ visitors, residents, checkIn, checkOut, addWalkIn, busy }) {
-  const [tab, setTab] = useState("expected");
-  const [name, setName] = useState("");
-  const [unit, setUnit] = useState("");
+function SecurityScan({ residents, lookupFamilyByCode, logEntry, recentLogs, busy }) {
+  const [manualCode, setManualCode] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const [matched, setMatched] = useState(null); // { member, resident } | "not-found" | null
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const rafRef = useRef(null);
 
-  const expected = visitors.filter((v) => v.status === "pending");
-  const onsite = visitors.filter((v) => v.status === "checked-in");
-  const history = visitors.filter((v) => v.status === "checked-out");
-
-  async function logWalkIn() {
-    if (!name.trim()) return;
-    await addWalkIn({ name: name.trim(), purpose: unit.trim() ? `Visiting ${unit.trim()}` : "Walk-in visitor", visit_date: isoDate(DAYS[0]), code: genCode(), status: "checked-in" });
-    setName(""); setUnit("");
+  async function startScan() {
+    setCameraError(""); setMatched(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      streamRef.current = stream;
+      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+      setScanning(true);
+      tick();
+    } catch (e) {
+      setCameraError("Couldn't access the camera. You can still enter a code manually below.");
+    }
+  }
+  function stopScan() {
+    setScanning(false);
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+  }
+  function tick() {
+    const video = videoRef.current, canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      rafRef.current = requestAnimationFrame(tick);
+      return;
+    }
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (window.jsQR) {
+      const code = window.jsQR(imageData.data, imageData.width, imageData.height);
+      if (code?.data) { handleCode(code.data); return; }
+    }
+    rafRef.current = requestAnimationFrame(tick);
   }
 
-  const subtabs = [
-    { key: "expected", label: `Expected (${expected.length})` },
-    { key: "onsite", label: `On-site (${onsite.length})` },
-    { key: "logvisitor", label: "Log walk-in" },
-  ];
+  async function handleCode(code) {
+    stopScan();
+    const found = await lookupFamilyByCode(code);
+    setMatched(found || "not-found");
+  }
+
+  async function submitManual() {
+    if (!manualCode.trim()) return;
+    const found = await lookupFamilyByCode(manualCode.trim());
+    setMatched(found || "not-found");
+    setManualCode("");
+  }
+
+  useEffect(() => () => stopScan(), []);
 
   return (
     <div className="px-4 py-4 space-y-4">
       <div>
-        <div className="f-display text-xl" style={{ color: C.ink }}>Gate log</div>
-        <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>
+        <div className="f-display text-xl" style={{ color: C.ink }}>Scan resident QR</div>
+        <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>Verify legitimacy, then log entry or exit.</div>
       </div>
-      <div className="flex gap-1.5 overflow-x-auto">
-        {subtabs.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)} className="f-body text-xs font-medium px-3 py-1.5 rounded-full shrink-0" style={{ background: tab === t.key ? C.ink : "#fff", color: tab === t.key ? "#fff" : C.inkSoft, border: `1px solid ${tab === t.key ? C.ink : C.line}` }}>{t.label}</button>
-        ))}
-      </div>
-      {tab === "expected" && (
-        <div className="space-y-2">
-          {expected.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No pre-registered visitors pending.</p>}
-          {expected.map((v) => {
-            const r = residents.find((x) => x.id === v.resident_id);
-            return (
-              <div key={v.id}>
-                <Pass eyebrow={r ? r.unit : fmtDate(v.visit_date)} title={v.name} subtitle={v.purpose} code={v.code} accent={C.gold} accentBg={C.goldBg} right={<Pill tone="gold">pending</Pill>} />
-                <button onClick={() => checkIn(v.id)} className="f-body text-xs font-medium w-full mt-1.5 py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}><ScanLine size={14} /> Check in at gate</button>
-              </div>
-            );
-          })}
+
+      {!scanning && (
+        <button onClick={startScan} className="w-full rounded-xl p-4 flex items-center justify-center gap-2" style={{ background: C.forest }}>
+          <Camera size={18} color="#fff" />
+          <span className="f-body text-sm font-medium text-white">Open camera scanner</span>
+        </button>
+      )}
+      {scanning && (
+        <div className="relative rounded-xl overflow-hidden" style={{ background: "#000" }}>
+          <video ref={videoRef} className="w-full" style={{ maxHeight: "260px", objectFit: "cover" }} muted playsInline />
+          <canvas ref={canvasRef} className="hidden" />
+          <button onClick={stopScan} className="absolute top-2 right-2 f-body text-xs px-2.5 py-1 rounded-full" style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}>Stop</button>
         </div>
       )}
-      {tab === "onsite" && (
+      {cameraError && <Banner tone="brick">{cameraError}</Banner>}
+
+      <div className="flex gap-2">
+        <input value={manualCode} onChange={(e) => setManualCode(e.target.value)} placeholder="Or type QR code manually" className="f-body text-sm flex-1 px-3 py-2.5 rounded-lg outline-none" style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.ink }} />
+        <button onClick={submitManual} className="f-body text-xs font-medium px-3 rounded-lg" style={{ background: C.paper2, color: C.ink }}>Check</button>
+      </div>
+
+      {matched === "not-found" && <Banner tone="brick">No resident found for that code. Do not admit — escalate to admin.</Banner>}
+
+      {matched && matched !== "not-found" && (
         <div className="space-y-2">
-          {onsite.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No visitors on-site right now.</p>}
-          {onsite.map((v) => {
-            const r = residents.find((x) => x.id === v.resident_id);
-            return (
-              <div key={v.id}>
-                <Pass eyebrow={r ? r.unit : "Walk-in"} title={v.name} subtitle={v.purpose} code={v.code} accent={C.sage} accentBg={C.sageBg} right={<Pill tone="sage">on-site</Pill>} />
-                <button onClick={() => checkOut(v.id)} className="f-body text-xs font-medium w-full mt-1.5 py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.paper2, color: C.ink }}><UserX size={14} /> Check out</button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {tab === "logvisitor" && (
-        <div className="space-y-4">
-          <div className="rounded-xl p-4 space-y-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
-            <SectionLabel>Manual gate log</SectionLabel>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Visitor name" className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
-            <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="Destination unit (e.g. Blk 4 Lot 12)" className="f-body text-sm w-full px-3 py-2.5 rounded-lg outline-none" style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.ink }} />
-            <button onClick={logWalkIn} disabled={!name.trim() || busy} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: name.trim() && !busy ? C.brick : C.paper2, color: name.trim() && !busy ? "#fff" : "#A4ABA3" }}>
-              {busy ? <Loader2 size={15} className="animate-spin" /> : <><UserCheck size={15} /> Log entry &amp; check in</>}
-            </button>
-          </div>
-          <div>
-            <SectionLabel>Recently checked out</SectionLabel>
-            <div className="space-y-2">
-              {history.slice(-3).reverse().map((v) => <Pass key={v.id} eyebrow={fmtDate(v.visit_date)} title={v.name} subtitle={v.purpose} code={v.code} accent="#A4ABA3" accentBg={C.paper2} right={<Pill tone="ink">left</Pill>} />)}
-              {history.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No completed visits yet.</p>}
+          <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: C.sageBg, border: `1.5px solid ${C.sage}` }}>
+            <CheckCircle2 size={28} color={C.forest} />
+            <div>
+              <div className="f-display text-lg" style={{ color: C.ink }}>{matched.member.name}</div>
+              <div className="f-body text-xs" style={{ color: C.inkSoft }}>{matched.member.relation} · Blk {matched.resident.blk} Lot {matched.resident.lot}, {matched.resident.phase}</div>
+              <div className="f-body text-xs mt-0.5" style={{ color: C.forest, fontWeight: 600 }}>Verified legitimate resident</div>
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button disabled={busy} onClick={async () => { await logEntry(matched.member.id, "in"); setMatched(null); }} className="f-body text-sm font-medium py-3 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}>
+              <UserCheck size={15} /> Log IN
+            </button>
+            <button disabled={busy} onClick={async () => { await logEntry(matched.member.id, "out"); setMatched(null); }} className="f-body text-sm font-medium py-3 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.paper2, color: C.ink }}>
+              <UserX size={15} /> Log OUT
+            </button>
+          </div>
         </div>
       )}
+
+      <div>
+        <SectionLabel>Recent scans</SectionLabel>
+        <div className="space-y-2">
+          {recentLogs.slice(0, 6).map((l) => (
+            <Pass key={l.id} eyebrow={fmtTime(l.scanned_at)} title={l.memberName} subtitle={l.residentLabel} accent={l.direction === "in" ? C.sage : "#A4ABA3"} accentBg={l.direction === "in" ? C.sageBg : C.paper2} right={<Pill tone={l.direction === "in" ? "sage" : "ink"}>{l.direction}</Pill>} />
+          ))}
+          {recentLogs.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No scans logged yet today.</p>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -664,57 +873,40 @@ export default function App() {
   const [amenities, setAmenities] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [dues, setDues] = useState([]);
-  const [visitors, setVisitors] = useState([]);
   const [profiles, setProfiles] = useState([]);
+  const [family, setFamily] = useState([]);
+  const [entryLogs, setEntryLogs] = useState([]);
 
   const token = session?.access_token;
 
-  const loadAll = useCallback(async (tok, role) => {
-    setLoadingApp(true);
-    setLoadError("");
+  const loadAll = useCallback(async (tok) => {
+    setLoadingApp(true); setLoadError("");
     try {
-      const [am, bk, du, vi, pr] = await Promise.all([
+      const [am, bk, du, pr, fm, el] = await Promise.all([
         rest("amenities?select=*&order=name", { token: tok }),
         rest("bookings?select=*&order=booking_date", { token: tok }),
         rest("dues?select=*&order=due_date", { token: tok }),
-        rest("visitors?select=*&order=created_at.desc", { token: tok }),
-        rest("profiles?select=id,name,unit,role", { token: tok }),
+        rest("profiles?select=*", { token: tok }),
+        rest("family_members?select=*&order=created_at", { token: tok }),
+        rest("entry_logs?select=*&order=scanned_at.desc&limit=50", { token: tok }),
       ]);
-      setAmenities(am); setBookings(bk); setDues(du); setVisitors(vi); setProfiles(pr);
-    } catch (e) {
-      setLoadError(e.message);
-    } finally {
-      setLoadingApp(false);
-    }
+      setAmenities(am); setBookings(bk); setDues(du); setProfiles(pr); setFamily(fm); setEntryLogs(el);
+    } catch (e) { setLoadError(e.message); }
+    finally { setLoadingApp(false); }
   }, []);
 
-  useEffect(() => {
-    if (session && profile) loadAll(session.access_token, profile.role);
-  }, [session, profile, loadAll]);
+  useEffect(() => { if (session && profile) loadAll(session.access_token); }, [session, profile, loadAll]);
 
   async function handleSignIn(email, password) {
     const data = await authRequest("token?grant_type=password", { email, password });
     const prof = await rest(`profiles?id=eq.${data.user.id}&select=*`, { token: data.access_token });
-    setSession(data);
-    setProfile(prof[0]);
-    setTab(prof[0].role === "resident" ? "home" : prof[0].role === "admin" ? "overview" : "gate");
+    if (!prof[0]) throw new Error("No profile found for this account.");
+    setSession(data); setProfile(prof[0]);
+    setTab(prof[0].role === "resident" ? "home" : prof[0].role === "admin" ? "overview" : "scan");
   }
-
-  async function handleSignUp(email, password, name, unit, role) {
-    const data = await authRequest("signup", { email, password, data: { name, unit, role } });
-    if (data.access_token) {
-      const prof = await rest(`profiles?id=eq.${data.user.id}&select=*`, { token: data.access_token });
-      setSession(data);
-      setProfile(prof[0]);
-      setTab(prof[0].role === "resident" ? "home" : prof[0].role === "admin" ? "overview" : "gate");
-      return "ok";
-    }
-    return "needs-confirmation";
-  }
-
   function handleSignOut() {
     setSession(null); setProfile(null);
-    setAmenities([]); setBookings([]); setDues([]); setVisitors([]); setProfiles([]);
+    setAmenities([]); setBookings([]); setDues([]); setProfiles([]); setFamily([]); setEntryLogs([]);
   }
 
   async function addBooking(fields) {
@@ -733,82 +925,87 @@ export default function App() {
     const [row] = await rest(`dues?id=eq.${id}`, { method: "PATCH", token, body: { status: "paid", paid_date: isoDate(new Date()) } });
     setDues((prev) => prev.map((d) => (d.id === id ? row : d)));
   }
-  async function addVisitor(fields) {
+  async function addFamilyMember(fields) {
     setBusy(true);
     try {
-      const [row] = await rest("visitors", { method: "POST", token, body: { ...fields, resident_id: profile.id } });
-      setVisitors((prev) => [row, ...prev]);
+      const [row] = await rest("family_members", { method: "POST", token, body: { ...fields, resident_id: profile.id } });
+      setFamily((prev) => [...prev, row]);
       return row;
     } finally { setBusy(false); }
   }
-  async function addWalkIn(fields) {
+  async function lookupFamilyByCode(code) {
+    const rows = await rest(`family_members?qr_code=eq.${encodeURIComponent(code)}&select=*`, { token });
+    if (!rows[0]) return null;
+    const resident = profiles.find((p) => p.id === rows[0].resident_id) || (await rest(`profiles?id=eq.${rows[0].resident_id}&select=*`, { token }))[0];
+    return { member: rows[0], resident };
+  }
+  async function logEntry(familyMemberId, direction) {
     setBusy(true);
     try {
-      const [row] = await rest("visitors", { method: "POST", token, body: { ...fields, resident_id: null, check_in_time: new Date().toISOString() } });
-      setVisitors((prev) => [row, ...prev]);
-      return row;
+      const [row] = await rest("entry_logs", { method: "POST", token, body: { family_member_id: familyMemberId, scanned_by: profile.id, direction } });
+      setEntryLogs((prev) => [row, ...prev]);
     } finally { setBusy(false); }
   }
-  async function checkIn(id) {
-    const [row] = await rest(`visitors?id=eq.${id}`, { method: "PATCH", token, body: { status: "checked-in", check_in_time: new Date().toISOString() } });
-    setVisitors((prev) => prev.map((v) => (v.id === id ? row : v)));
-  }
-  async function checkOut(id) {
-    const [row] = await rest(`visitors?id=eq.${id}`, { method: "PATCH", token, body: { status: "checked-out", check_out_time: new Date().toISOString() } });
-    setVisitors((prev) => prev.map((v) => (v.id === id ? row : v)));
+  async function uploadHouseholdPhoto(file) {
+    const url = await uploadPhoto(file, token, `household/${profile.id}`);
+    const [row] = await rest(`profiles?id=eq.${profile.id}`, { method: "PATCH", token, body: { photo_url: url } });
+    setProfile(row);
   }
 
-  if (!session || !profile) {
-    return <AuthScreen onSignIn={handleSignIn} onSignUp={handleSignUp} />;
-  }
+  if (!session || !profile) return <AuthScreen onSignIn={handleSignIn} />;
 
   const residents = profiles.filter((p) => p.role === "resident");
+  const staff = profiles.filter((p) => p.role !== "resident");
   const myBookings = bookings.filter((b) => b.resident_id === profile.id);
   const myDues = dues.filter((d) => d.resident_id === profile.id);
-  const myVisitors = visitors.filter((v) => v.resident_id === profile.id);
+  const myFamily = family.filter((m) => m.resident_id === profile.id);
+
+  const todayStr = isoDate(new Date());
+  const entryLogsToday = entryLogs.filter((l) => l.scanned_at?.slice(0, 10) === todayStr);
+  const recentLogsEnriched = entryLogs.map((l) => {
+    const m = family.find((fm) => fm.id === l.family_member_id);
+    const r = m ? profiles.find((p) => p.id === m.resident_id) : null;
+    return { ...l, memberName: m?.name || "Unknown", residentLabel: r ? `Blk ${r.blk} Lot ${r.lot}` : "" };
+  });
 
   const residentNav = [
     { key: "home", label: "Home", icon: Home },
     { key: "book", label: "Book", icon: CalendarDays },
     { key: "dues", label: "Dues", icon: Wallet },
-    { key: "passes", label: "Passes", icon: ShieldCheck },
+    { key: "household", label: "Household", icon: IdCard },
   ];
   const adminNav = [
     { key: "overview", label: "Overview", icon: Home },
+    { key: "residents", label: "Residents", icon: Users },
+    { key: "staff", label: "Staff", icon: ShieldCheck },
     { key: "bookingsAdmin", label: "Bookings", icon: CalendarDays },
     { key: "duesAdmin", label: "Dues", icon: Wallet },
   ];
-  const securityNav = [{ key: "gate", label: "Gate log", icon: ScanLine }];
+  const securityNav = [{ key: "scan", label: "Scan", icon: ScanLine }];
 
-  const titles = { home: "Home", book: "Book amenity", dues: "Dues", passes: "Gate passes", overview: "Admin", bookingsAdmin: "Bookings", duesAdmin: "Dues ledger", gate: "Security" };
+  const titles = { home: "Home", book: "Book amenity", dues: "Dues", household: "Household", overview: "Admin", residents: "Residents", staff: "Staff", bookingsAdmin: "Bookings", duesAdmin: "Dues ledger", scan: "Security" };
 
   return (
     <div className="min-h-screen f-body" style={{ background: C.paper, maxWidth: "480px", margin: "0 auto", position: "relative" }}>
       {FONTS}
-      <TopBar title={titles[tab]} subtitle={`${profile.name} · ${profile.role === "resident" ? profile.unit : profile.role}`} onSignOut={handleSignOut} />
+      <TopBar title={titles[tab]} subtitle={`${profile.name} · ${profile.role === "resident" ? `Blk ${profile.blk || "—"} Lot ${profile.lot || "—"}` : profile.role}`} onSignOut={handleSignOut} />
 
-      {loadingApp && (
-        <div className="flex items-center gap-2 px-4 py-3 f-body text-xs" style={{ color: C.inkSoft }}>
-          <Loader2 size={14} className="animate-spin" /> Loading live data…
-        </div>
-      )}
-      {loadError && (
-        <div className="mx-4 mt-3 flex items-start gap-1.5 f-body text-xs px-3 py-2 rounded-lg" style={{ background: C.brickBg, color: C.brick }}>
-          <AlertCircle size={14} className="mt-0.5 shrink-0" /> {loadError}
-        </div>
-      )}
+      {loadingApp && <div className="flex items-center gap-2 px-4 py-3 f-body text-xs" style={{ color: C.inkSoft }}><Loader2 size={14} className="animate-spin" /> Loading live data…</div>}
+      {loadError && <div className="mx-4 mt-3"><Banner tone="brick">{loadError}</Banner></div>}
 
       <div style={{ paddingBottom: "88px" }}>
-        {profile.role === "resident" && tab === "home" && <ResidentHome profile={profile} bookings={myBookings} dues={myDues} visitors={myVisitors} amenities={amenities} setTab={setTab} />}
+        {profile.role === "resident" && tab === "home" && <ResidentHome profile={profile} bookings={myBookings} dues={myDues} family={myFamily} setTab={setTab} />}
         {profile.role === "resident" && tab === "book" && <ResidentBook profile={profile} bookings={bookings} amenities={amenities} addBooking={addBooking} busy={busy} />}
         {profile.role === "resident" && tab === "dues" && <ResidentDues profile={profile} dues={myDues} payDue={payDue} />}
-        {profile.role === "resident" && tab === "passes" && <ResidentPasses visitors={myVisitors} addVisitor={addVisitor} busy={busy} />}
+        {profile.role === "resident" && tab === "household" && <ResidentHousehold profile={profile} family={myFamily} addMember={addFamilyMember} uploadHouseholdPhoto={uploadHouseholdPhoto} token={token} busy={busy} />}
 
-        {profile.role === "admin" && tab === "overview" && <AdminOverview residents={residents} bookings={bookings} dues={dues} visitors={visitors} />}
+        {profile.role === "admin" && tab === "overview" && <AdminOverview residents={residents} bookings={bookings} dues={dues} family={family} entryLogsToday={entryLogsToday} />}
+        {profile.role === "admin" && tab === "residents" && <AdminResidents residents={residents} family={family} token={token} onCreated={() => loadAll(token)} />}
+        {profile.role === "admin" && tab === "staff" && <AdminStaff staff={staff} token={token} onCreated={() => loadAll(token)} />}
         {profile.role === "admin" && tab === "bookingsAdmin" && <AdminBookings bookings={bookings} residents={profiles} amenities={amenities} updateBooking={updateBooking} />}
         {profile.role === "admin" && tab === "duesAdmin" && <AdminDues dues={dues} residents={profiles} payDue={payDue} />}
 
-        {profile.role === "security" && tab === "gate" && <SecurityGate visitors={visitors} residents={profiles} checkIn={checkIn} checkOut={checkOut} addWalkIn={addWalkIn} busy={busy} />}
+        {profile.role === "security" && tab === "scan" && <SecurityScan residents={residents} lookupFamilyByCode={lookupFamilyByCode} logEntry={logEntry} recentLogs={recentLogsEnriched} busy={busy} />}
       </div>
 
       <BottomNav items={profile.role === "resident" ? residentNav : profile.role === "admin" ? adminNav : securityNav} active={tab} onChange={setTab} />
