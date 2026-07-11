@@ -239,7 +239,11 @@ function AuthScreen({ onSignIn }) {
 
   async function submit() {
     setError(""); setBusy(true);
-    try { await onSignIn(email.trim().toLowerCase(), password); }
+    try {
+      const raw = email.trim().toLowerCase();
+      const identifier = raw.includes("@") ? raw : `${raw}@${USERNAME_DOMAIN}`;
+      await onSignIn(identifier, password);
+    }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
@@ -257,7 +261,7 @@ function AuthScreen({ onSignIn }) {
       </div>
       <div className="rounded-2xl p-5 space-y-3" style={{ background: "#fff" }}>
         <SectionLabel>Sign in</SectionLabel>
-        <Field value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" />
+        <Field value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Username (residents) or email (staff)" autoCapitalize="none" autoCorrect="off" spellCheck={false} />
         <Field value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" />
         {error && <Banner tone="brick">{error}</Banner>}
         <button onClick={submit} disabled={busy || !email || !password} className="f-body text-sm font-medium w-full py-3 rounded-xl flex items-center justify-center gap-1.5" style={{ background: busy || !email || !password ? C.paper2 : C.forest, color: busy || !email || !password ? "#A4ABA3" : "#fff" }}>
@@ -546,24 +550,36 @@ function AdminOverview({ residents, bookings, dues, family, entryLogsToday }) {
 // ---------------------------------------------------------------------------
 // ADMIN: RESIDENTS (create + list)
 // ---------------------------------------------------------------------------
+function surnameOf(fullName) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : "Resident";
+}
+function usernameOf(blk, lot, phase) {
+  const clean = (s) => (s || "").toString().trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  return `b${clean(blk)}l${clean(lot)}p${clean(phase)}`;
+}
+const USERNAME_DOMAIN = "gatehouse.local";
+
 function AdminResidents({ residents, family, token, onCreated }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
+  const [form, setForm] = useState({ name: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+  const previewUsername = form.blk && form.lot && form.phase ? usernameOf(form.blk, form.lot, form.phase) : null;
 
   async function submit() {
-    const email = form.email.trim().toLowerCase();
-    if (!form.name.trim() || !email) return;
+    if (!form.name.trim() || !form.blk.trim() || !form.lot.trim() || !form.phase.trim()) return;
     setBusy(true); setError(""); setResult(null);
     try {
-      const password = genTempPassword();
-      const res = await callFunction("admin-create-user", token, { ...form, email, role: "resident", password, family_member_count: Number(form.family_member_count) || 1 });
-      setResult({ email, password });
-      setForm({ name: "", email: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
+      const username = usernameOf(form.blk, form.lot, form.phase);
+      const email = `${username}@${USERNAME_DOMAIN}`;
+      const password = surnameOf(form.name);
+      await callFunction("admin-create-user", token, { ...form, email, role: "resident", password, family_member_count: Number(form.family_member_count) || 1 });
+      setResult({ username, password });
+      setForm({ name: "", blk: "", lot: "", phase: "", vehicle: "", phone: "", family_member_count: 1 });
       onCreated();
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
@@ -585,7 +601,6 @@ function AdminResidents({ residents, family, token, onCreated }) {
         <div className="rounded-xl p-4 space-y-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
           <SectionLabel>New resident household</SectionLabel>
           <Field label="Full name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Juan Dela Cruz" />
-          <Field label="Email (used for login)" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="juan@email.com" type="email" />
           <div className="grid grid-cols-3 gap-2">
             <Field label="Block" value={form.blk} onChange={(e) => set("blk", e.target.value)} placeholder="4" />
             <Field label="Lot" value={form.lot} onChange={(e) => set("lot", e.target.value)} placeholder="12" />
@@ -594,14 +609,19 @@ function AdminResidents({ residents, family, token, onCreated }) {
           <Field label="Vehicle (plate / model)" value={form.vehicle} onChange={(e) => set("vehicle", e.target.value)} placeholder="ABC 1234, Toyota Vios" />
           <Field label="Contact number" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="0917 555 0142" />
           <Field label="Declared family member count" value={form.family_member_count} onChange={(e) => set("family_member_count", e.target.value)} type="number" min="1" />
+          {previewUsername && (
+            <p className="f-body text-[11px]" style={{ color: C.inkSoft }}>
+              Login username will be <span className="f-mono" style={{ color: C.ink }}>{previewUsername}</span>, password will be the surname <span className="f-mono" style={{ color: C.ink }}>{form.name.trim() ? surnameOf(form.name) : "—"}</span>.
+            </p>
+          )}
           {error && <Banner tone="brick">{error}</Banner>}
           {result && (
             <Banner tone="sage">
               Account created. Share these login details with the resident: <br />
-              <span className="f-mono">{result.email} / {result.password}</span>
+              <span className="f-mono">{result.username} / {result.password}</span>
             </Banner>
           )}
-          <button onClick={submit} disabled={busy || !form.name.trim() || !form.email.trim()} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}>
+          <button onClick={submit} disabled={busy || !form.name.trim() || !form.blk.trim() || !form.lot.trim() || !form.phase.trim()} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}>
             {busy ? <Loader2 size={15} className="animate-spin" /> : "Create resident account"}
           </button>
         </div>
@@ -623,24 +643,34 @@ function AdminResidents({ residents, family, token, onCreated }) {
 // ---------------------------------------------------------------------------
 // ADMIN: STAFF (admin + security accounts)
 // ---------------------------------------------------------------------------
+const STAFF_ROLES = [
+  { key: "admin", label: "Admin" },
+  { key: "security", label: "Security" },
+  { key: "cashier", label: "Cashier" },
+  { key: "staff", label: "General staff" },
+];
+
 function AdminStaff({ staff, token, onCreated }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", role: "security" });
+  const [form, setForm] = useState({ name: "", phone: "", role: "security" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+  const nextNumber = staff.filter((s) => s.role === form.role).length + 1;
+  const previewUsername = `${form.role}${nextNumber}`;
 
   async function submit() {
-    const email = form.email.trim().toLowerCase();
-    if (!form.name.trim() || !email) return;
+    if (!form.name.trim()) return;
     setBusy(true); setError(""); setResult(null);
     try {
+      const username = `${form.role}${staff.filter((s) => s.role === form.role).length + 1}`;
+      const email = `${username}@${USERNAME_DOMAIN}`;
       const password = genTempPassword();
       await callFunction("admin-create-user", token, { ...form, email, password });
-      setResult({ email, password });
-      setForm({ name: "", email: "", phone: "", role: "security" });
+      setResult({ username, password });
+      setForm({ name: "", phone: "", role: form.role });
       onCreated();
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
@@ -651,7 +681,7 @@ function AdminStaff({ staff, token, onCreated }) {
       <div className="flex items-center justify-between">
         <div>
           <div className="f-display text-xl" style={{ color: C.ink }}>Staff accounts</div>
-          <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>Admins &amp; security guards</div>
+          <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>Admin, security, cashier &amp; general staff</div>
         </div>
         <button onClick={() => setOpen((o) => !o)} className="f-body text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1" style={{ background: C.forest, color: "#fff" }}>
           <Plus size={14} /> Add
@@ -661,31 +691,36 @@ function AdminStaff({ staff, token, onCreated }) {
       {open && (
         <div className="rounded-xl p-4 space-y-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
           <SectionLabel>New staff account</SectionLabel>
-          <div className="flex gap-2">
-            {["security", "admin"].map((r) => (
-              <button key={r} onClick={() => set("role", r)} className="flex-1 f-body text-xs font-medium py-2 rounded-lg capitalize" style={{ background: form.role === r ? C.ink : C.paper, color: form.role === r ? "#fff" : C.inkSoft, border: `1px solid ${form.role === r ? C.ink : C.line}` }}>{r}</button>
+          <div className="grid grid-cols-2 gap-2">
+            {STAFF_ROLES.map((r) => (
+              <button key={r.key} onClick={() => set("role", r.key)} className="f-body text-xs font-medium py-2 rounded-lg" style={{ background: form.role === r.key ? C.ink : C.paper, color: form.role === r.key ? "#fff" : C.inkSoft, border: `1px solid ${form.role === r.key ? C.ink : C.line}` }}>{r.label}</button>
             ))}
           </div>
           <Field label="Full name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Full name" />
-          <Field label="Email (used for login)" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="name@email.com" type="email" />
           <Field label="Contact number" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="0917 555 0142" />
+          <p className="f-body text-[11px]" style={{ color: C.inkSoft }}>
+            Login username will be <span className="f-mono" style={{ color: C.ink }}>{previewUsername}</span>.
+          </p>
           {error && <Banner tone="brick">{error}</Banner>}
           {result && (
             <Banner tone="sage">
               Account created. Share these login details: <br />
-              <span className="f-mono">{result.email} / {result.password}</span>
+              <span className="f-mono">{result.username} / {result.password}</span>
             </Banner>
           )}
-          <button onClick={submit} disabled={busy || !form.name.trim() || !form.email.trim()} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}>
+          <button onClick={submit} disabled={busy || !form.name.trim()} className="f-body text-sm font-medium w-full py-2.5 rounded-lg flex items-center justify-center gap-1.5" style={{ background: C.forest, color: "#fff" }}>
             {busy ? <Loader2 size={15} className="animate-spin" /> : "Create staff account"}
           </button>
         </div>
       )}
 
       <div className="space-y-2">
-        {staff.map((s) => (
-          <Pass key={s.id} eyebrow={s.role} title={s.name} subtitle={s.phone || ""} accent={s.role === "admin" ? C.forest : C.brick} accentBg={s.role === "admin" ? C.sageBg : C.brickBg} right={<Pill tone={s.role === "admin" ? "sage" : "brick"}>{s.role}</Pill>} />
-        ))}
+        {STAFF_ROLES.map((r) => r.key).map((roleKey) =>
+          staff.filter((s) => s.role === roleKey).map((s) => (
+            <Pass key={s.id} eyebrow={s.role} title={s.name} subtitle={s.phone || ""} accent={s.role === "admin" ? C.forest : s.role === "security" ? C.brick : s.role === "cashier" ? C.gold : C.sage} accentBg={s.role === "admin" ? C.sageBg : s.role === "security" ? C.brickBg : s.role === "cashier" ? C.goldBg : C.sageBg} right={<Pill tone={s.role === "admin" ? "sage" : s.role === "security" ? "brick" : s.role === "cashier" ? "gold" : "sage"}>{s.role}</Pill>} />
+          ))
+        )}
+        {staff.length === 0 && <p className="f-body text-xs" style={{ color: C.inkSoft }}>No staff accounts yet.</p>}
       </div>
     </div>
   );
@@ -907,7 +942,8 @@ export default function App() {
     const prof = await rest(`profiles?id=eq.${data.user.id}&select=*`, { token: data.access_token });
     if (!prof[0]) throw new Error("No profile found for this account.");
     setSession(data); setProfile(prof[0]);
-    setTab(prof[0].role === "resident" ? "home" : prof[0].role === "admin" ? "overview" : "scan");
+    const defaults = { resident: "home", admin: "overview", security: "scan", cashier: "duesAdmin", staff: "staffHome" };
+    setTab(defaults[prof[0].role] || "home");
   }
   function handleSignOut() {
     setSession(null); setProfile(null);
@@ -987,8 +1023,13 @@ export default function App() {
     { key: "duesAdmin", label: "Dues", icon: Wallet },
   ];
   const securityNav = [{ key: "scan", label: "Scan", icon: ScanLine }];
+  const cashierNav = [{ key: "duesAdmin", label: "Dues", icon: Wallet }];
+  const staffNav = [{ key: "staffHome", label: "Home", icon: Home }];
 
-  const titles = { home: "Home", book: "Book amenity", dues: "Dues", household: "Household", overview: "Admin", residents: "Residents", staff: "Staff", bookingsAdmin: "Bookings", duesAdmin: "Dues ledger", scan: "Security" };
+  const navByRole = { resident: residentNav, admin: adminNav, security: securityNav, cashier: cashierNav, staff: staffNav };
+  const defaultTabByRole = { resident: "home", admin: "overview", security: "scan", cashier: "duesAdmin", staff: "staffHome" };
+
+  const titles = { home: "Home", book: "Book amenity", dues: "Dues", household: "Household", overview: "Admin", residents: "Residents", staff: "Staff", bookingsAdmin: "Bookings", duesAdmin: "Dues ledger", scan: "Security", staffHome: "Home" };
 
   return (
     <div className="min-h-screen f-body" style={{ background: C.paper, maxWidth: "480px", margin: "0 auto", position: "relative" }}>
@@ -1011,9 +1052,21 @@ export default function App() {
         {profile.role === "admin" && tab === "duesAdmin" && <AdminDues dues={dues} residents={profiles} payDue={payDue} />}
 
         {profile.role === "security" && tab === "scan" && <SecurityScan residents={residents} lookupFamilyByCode={lookupFamilyByCode} logEntry={logEntry} recentLogs={recentLogsEnriched} busy={busy} />}
+
+        {profile.role === "cashier" && tab === "duesAdmin" && <AdminDues dues={dues} residents={profiles} payDue={payDue} />}
+
+        {profile.role === "staff" && tab === "staffHome" && (
+          <div className="px-4 py-4 space-y-4">
+            <div>
+              <div className="f-display text-xl" style={{ color: C.ink }}>Welcome, {profile.name.split(" ")[0]}</div>
+              <div className="f-body text-xs mt-0.5" style={{ color: C.inkSoft }}>General staff account</div>
+            </div>
+            <Banner tone="sage">Your account is active. Ask your admin what tasks you should have access to next — this role doesn't have a dedicated screen yet.</Banner>
+          </div>
+        )}
       </div>
 
-      <BottomNav items={profile.role === "resident" ? residentNav : profile.role === "admin" ? adminNav : securityNav} active={tab} onChange={setTab} />
+      <BottomNav items={navByRole[profile.role] || []} active={tab} onChange={setTab} />
     </div>
   );
 }
