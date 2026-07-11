@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Home, CalendarDays, Wallet, ShieldCheck, Plus, Waves, Users, IdCard,
+  Home, CalendarDays, Wallet, ShieldCheck, Plus, Waves, Users, Contact,
   Dumbbell, PartyPopper, TreePine, ScanLine, UserCheck, UserX, Camera,
   ArrowRight, Building2, LogOut, Loader2, AlertCircle, CheckCircle2,
   XCircle, Car, Phone, Image as ImageIcon
@@ -301,7 +301,7 @@ function ResidentHome({ profile, bookings, dues, family, setTab }) {
         <div>
           <SectionLabel>Get started</SectionLabel>
           <button onClick={() => setTab("household")} className="w-full rounded-xl p-4 text-left" style={{ background: C.brick }}>
-            <IdCard size={18} color="#fff" />
+            <Contact size={18} color="#fff" />
             <div className="f-body text-sm font-medium text-white mt-2">Add your household members to generate gate QR passes</div>
           </button>
         </div>
@@ -972,7 +972,7 @@ export default function App() {
     { key: "home", label: "Home", icon: Home },
     { key: "book", label: "Book", icon: CalendarDays },
     { key: "dues", label: "Dues", icon: Wallet },
-    { key: "household", label: "Household", icon: IdCard },
+    { key: "household", label: "Household", icon: Contact },
   ];
   const adminNav = [
     { key: "overview", label: "Overview", icon: Home },
